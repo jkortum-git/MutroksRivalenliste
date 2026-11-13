@@ -1,0 +1,9 @@
+package-as: MutroksRivalenliste
+manual-changelog:
+  filename: RELEASE_NOTES.md
+  markup-type: markdown
+ignore:
+  - .github
+  - tools
+  - SETUP.md
+  - release-config.json

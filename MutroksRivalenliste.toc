@@ -1,0 +1,11 @@
+## Interface: 16001
+## Title: Mutroks Rivalenliste
+## Author: Mutrok
+## Version: 1.1.1
+## Notes: Alerts you when you encounter a listed player in the open world.
+## Notes-deDE: Warnt dich in der offenen Welt vor Spielern auf deiner Rivalenliste. Öffnen mit /rivalen.
+## Category: Mutroks Addons
+## Category-deDE: Mutroks Addons
+## IconTexture: Interface\Icons\Ability_Hunter_SniperShot
+## SavedVariables: MutroksRivalenDB
+Rivalen.lua

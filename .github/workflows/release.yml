@@ -1,0 +1,110 @@
+name: Validate and release to CurseForge
+on:
+  push:
+    branches: ['main']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+env:
+  CF_PROJECT_ID: "1802795"
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Test upload metadata and duplicate protection without network
+        run: python3 tools/test_release.py
+      - name: Check TOC, version, file references and inspection ZIP
+        run: python3 tools/validate.py
+      - name: Build Forever package without upload
+        uses: BigWigsMods/packager@01e8631a69c69d7654c788d152630d5fed9e3812
+        with:
+          args: '-d -g forever -p 0 -w 0 -a 0 -m .pkgmeta -n "{package-name}-{project-version}{classic}:Mutroks Rivalenliste {project-version} - WoW Forever"'
+  upload:
+    needs: validate
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check for a receipt from a previous attempt of this run
+        id: receipt
+        run: python3 tools/curseforge_release.py check-existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: Restore an already accepted upload
+        if: steps.receipt.outputs.found == 'true'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: curseforge-receipt-${{ github.ref_name }}
+          path: .release
+      - name: Refuse another upload when a previous outcome is uncertain
+        if: steps.receipt.outputs.found != 'true'
+        shell: bash
+        run: |
+          [[ '${{ steps.receipt.outputs.intent }}' != 'true' ]] || { echo 'Previous upload intent exists without a receipt. Inspect CurseForge; do not upload twice.'; exit 1; }
+      - name: Require the CurseForge token
+        if: steps.receipt.outputs.found != 'true'
+        env:
+          CF_API_TOKEN: ${{ secrets.CURSEDFORGE }}
+        shell: bash
+        run: |
+          [[ -n "$CF_API_TOKEN" ]] || { echo 'Missing CURSEDFORGE secret'; exit 1; }
+      - name: Build the standard BigWigs Forever ZIP without uploading
+        if: steps.receipt.outputs.found != 'true'
+        uses: BigWigsMods/packager@01e8631a69c69d7654c788d152630d5fed9e3812
+        with:
+          args: '-d -g forever -p 0 -w 0 -a 0 -m .pkgmeta -n "{package-name}-{project-version}{classic}:Mutroks Rivalenliste {project-version} - WoW Forever"'
+      - name: Prepare the upload intent
+        if: steps.receipt.outputs.found != 'true'
+        run: python3 tools/curseforge_release.py write-intent
+      - name: Persist intent before the single upload request
+        if: steps.receipt.outputs.found != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: curseforge-intent-${{ github.ref_name }}
+          path: .release/upload-intent.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload once through the official CurseForge API
+        if: steps.receipt.outputs.found != 'true'
+        run: python3 tools/curseforge_release.py upload
+        env:
+          CF_API_TOKEN: ${{ secrets.CURSEDFORGE }}
+      - name: Persist the receipt before finalizing metadata
+        if: steps.receipt.outputs.found != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: curseforge-receipt-${{ github.ref_name }}
+          path: .release/cf_result.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 90
+  finalize:
+    needs: upload
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: curseforge-receipt-${{ github.ref_name }}
+          path: .release
+      - name: Set the readable file name and summarize the accepted upload
+        run: python3 tools/curseforge_release.py finalize
+        env:
+          CF_API_TOKEN: ${{ secrets.CURSEDFORGE }}
